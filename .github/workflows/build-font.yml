@@ -27,7 +27,7 @@ jobs:
           path: iosevka-src
           fetch-depth: 1
 
-      # 3. Install system dependencies required by Iosevka
+      # 3. Install system dependencies
       - name: Install system dependencies
         run: |
           sudo apt-get update
@@ -39,60 +39,54 @@ jobs:
         with:
           node-version: "20"
 
-      # 5. Copy your custom build plan into the Iosevka source directory
+      # 5. Copy your custom build plan
       - name: Copy custom build plan
         run: cp private-build-plans.toml iosevka-src/
 
-      # 6. Install dependencies and build ALL 4 variants
-      # Note: 'contents::' builds both TTF and Webfonts (WOFF2)
+      # 6. Install dependencies and build ONLY the requested TTF versions
+      # Using 'ttf::' instead of 'contents::' saves time by skipping webfonts.
+      # Added --jCmd=1 to prevent Out-Of-Memory errors on GitHub Runners.
       - name: Install dependencies and build fonts
         run: |
           cd iosevka-src
           npm install
-          npm run build -- contents::IoskeleyMono contents::IoskeleyQuasi contents::IoskeleySlabMono contents::IoskeleySlabQuasi
+          npm run build -- ttf::IoskeleyMono ttf::IoskeleyQuasi --jCmd=1
 
-      # 7. Verify and Package font files
-      # Uses a loop to handle all 4 families dynamically
+      # 7. Verify and Package ONLY Hinted TTF files
       - name: Package font files
         run: |
-          # Define the list of plans to package
-          PLANS=("IoskeleyMono" "IoskeleyQuasi" "IoskeleySlabMono" "IoskeleySlabQuasi")
+          # Only process these two plans
+          PLANS=("IoskeleyMono" "IoskeleyQuasi")
           
           cd iosevka-src/dist
           
           for PLAN in "${PLANS[@]}"; do
             echo "Processing $PLAN..."
             
-            # Verify output exists
-            if [ ! -d "$PLAN/TTF" ] || [ ! -d "$PLAN/WOFF2" ]; then
-              echo "Error: Build output for $PLAN not found!"
+            # Verify TTF output exists
+            if [ ! -d "$PLAN/TTF" ]; then
+              echo "Error: TTF output for $PLAN not found!"
               exit 1
             fi
 
             # Enter the plan directory
             cd "$PLAN"
 
-            # 1. Package Hinted TTF (Root workspace)
+            # Package ONLY the Hinted TTF folder
             zip -r -q "../../../$PLAN-TTF-Hinted.zip" TTF
-
-            # 2. Package Unhinted TTF
-            zip -r -q "../../../$PLAN-TTF-Unhinted.zip" TTF-Unhinted
-
-            # 3. Package Webfonts (WOFF2)
-            zip -r -q "../../../$PLAN-Web.zip" WOFF2 WOFF2-Unhinted
             
             # Go back to dist directory
             cd ..
           done
           
-          echo "All packages created successfully."
+          echo "Packages created successfully."
 
       # 8. Set the release version number
       - name: Set Release Version
         id: vars
         run: echo "tag=$(date +'%Y.%m.%d')-${{ github.run_number }}" >> $GITHUB_OUTPUT
 
-      # 9. Create a new GitHub Release and upload assets
+      # 9. Create Release and Upload Assets
       - name: Create Release and Upload Assets
         uses: softprops/action-gh-release@v1
         with:
@@ -101,17 +95,11 @@ jobs:
           body: |
             Automated build triggered by commit ${{ github.sha }}.
             
-            ### Font Families Included:
-            *   **Ioskeley Mono**: Sans-serif, Monospace (Standard code font).
-            *   **Ioskeley Quasi**: Sans-serif, Quasi-proportional (More readable, narrower spacing).
-            *   **Ioskeley Slab Mono**: Slab-serif, Monospace.
-            *   **Ioskeley Slab Quasi**: Slab-serif, Quasi-proportional.
-
-            ### Asset Guide:
-            *   `*-TTF-Hinted.zip`: Best for Windows/Linux desktop users (Standard resolution).
-            *   `*-TTF-Unhinted.zip`: Best for macOS or High-DPI screens.
-            *   `*-Web.zip`: WOFF2 files for web embedding.
+            ### Included Fonts (Hinted TTF only):
+            *   **IoskeleyMono-TTF-Hinted.zip**: Monospace version.
+            *   **IoskeleyQuasi-TTF-Hinted.zip**: Quasi-proportional version (SB=85).
           files: |
-            *.zip
+            IoskeleyMono-TTF-Hinted.zip
+            IoskeleyQuasi-TTF-Hinted.zip
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
